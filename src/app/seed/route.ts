@@ -1,18 +1,12 @@
 import bcrypt from "bcrypt";
-import format from "pg-format";
 import fs from "node:fs";
 
-import { Client } from "pg";
-import { parse } from "csv-parse";
+import parser from "csv-parser";
 import { randomUUID } from "node:crypto";
 
 import { City, ComposerDb, User } from "@/app/lib/definitions";
 import { deepEqual, pointToCoord } from "@/app/lib/utils";
-
-const client = new Client({
-  client_encoding: "utf8",
-} as any);
-await client.connect();
+import { sql } from "@/app/lib/data";
 
 type ComposerRaw = {
   id: string;
@@ -27,11 +21,11 @@ type ComposerRaw = {
 
 const processInputFiles = async (): Promise<[ComposerDb[], City[]]> => {
   const cities: City[] = await processCitiesFile(
-    "/home/mad/local/composers_map/src/app/seed/Cities_Coords.csv"
+    "/home/mad/local/composers_map/src/app/seed/cities_data1.csv"
   );
   const composers: ComposerDb[] = [];
   const composersRaw: ComposerRaw[] = await processComposersFile(
-    "/home/mad/local/composers_map/src/app/seed/Baroque_Composers_EN.csv"
+    "/home/mad/local/composers_map/src/app/seed/composers_data1.csv"
   );
 
   function checkBirthCity(birthplace: string, birthCoords: string): string {
@@ -93,67 +87,82 @@ const processInputFiles = async (): Promise<[ComposerDb[], City[]]> => {
 
 const processComposersFile = async (path: string): Promise<ComposerRaw[]> => {
   const composers: ComposerRaw[] = [];
-  const parser = fs.createReadStream(path, "utf8").pipe(
-    parse({
-      columns: true,
-    })
-  );
-  for await (const record of parser) {
-    const comp: ComposerRaw = {
-      id: record.item.replace("http://www.wikidata.org/entity/", ""),
-      name: record.itemLabel,
-      birthDate: record.birthDate,
-      birthplace: record.birthplaceLabel,
-      coordsBirth: record.coordsBirth,
-      coordsDeath: record.coordsDeath,
-      deathplace: record.deathplaceLabel,
-      deathDate: record.deathDate,
-    };
+  const parse = new Promise<ComposerRaw[]>((resolve, reject) => {
+    fs.createReadStream(path, { encoding: "utf8" })
+      .pipe(parser())
+      .on("data", (record) => {
+        if (
+          composers.findIndex(
+            (comp) =>
+              comp.id ==
+              record.item.replace("http://www.wikidata.org/entity/", "")
+          ) === -1
+        ) {
+          const comp: ComposerRaw = {
+            id: record.item.replace("http://www.wikidata.org/entity/", ""),
+            name: record.itemLabel,
+            birthDate: record.birthDate,
+            birthplace: record.birthplaceLabel,
+            coordsBirth: record.coordsBirth,
+            coordsDeath: record.coordsDeath,
+            deathplace: record.deathplaceLabel,
+            deathDate: record.deathDate,
+          };
 
-    composers.push(comp);
-  }
-  parser.end();
-  return composers;
+          composers.push(comp);
+        }
+      })
+      .on("error", (error) => {
+        reject(error);
+      })
+      .on("end", () => {
+        resolve(composers);
+      });
+  });
+
+  return parse;
 };
 
 const processCitiesFile = async (path: string) => {
   const cities: City[] = [];
-  const parser = fs.createReadStream(path, "utf8").pipe(
-    parse({
-      columns: true,
-    })
-  );
-  for await (const record of parser) {
-    cities.push({
-      id: record.item.replace("http://www.wikidata.org/entity/", ""),
-      name: record.itemLabel,
-      coordinates: pointToCoord(record.coords),
-    });
-  }
-  parser.end();
-  return cities;
+  const parse = new Promise<City[]>((resolve, reject) => {
+    fs.createReadStream(path, { encoding: "utf8" })
+      .pipe(parser())
+      .on("data", (record) => {
+        if (
+          cities.findIndex(
+            (city) =>
+              city.id ==
+              record.item.replace("http://www.wikidata.org/entity/", "")
+          ) === -1
+        )
+          cities.push({
+            id: record.item.replace("http://www.wikidata.org/entity/", ""),
+            name: record.itemLabel,
+            coordinates: pointToCoord(record.coords),
+          });
+      })
+      .on("error", (error) => {
+        reject(error);
+      })
+      .on("end", () => {
+        resolve(cities);
+      });
+  });
+
+  return parse;
 };
 
 async function seedCities(cities: City[]) {
-  await client.query(
-    Buffer.from(
-      format(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`),
-      "utf8"
-    ).toString("utf8")
-  );
-  await client.query(
-    Buffer.from(
-      `
+  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  await sql`
     CREATE TABLE IF NOT EXISTS cities (
       id VARCHAR(255) DEFAULT uuid_generate_v4() PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       longitude NUMERIC(12, 9) NOT NULL,
       latitude NUMERIC(12,9) NOT NULL
     );
-  `,
-      "utf8"
-    ).toString("utf8")
-  );
+  `;
 
   console.log("Created table cities.");
   console.log("Insert Cities...");
@@ -161,104 +170,63 @@ async function seedCities(cities: City[]) {
 
   let counter = 0;
 
-  const insertedCities = await Promise.all(
-    cities.map(async (city) => {
-      /*console.log(counter++);
-      console.log(
-        format(
-          "%L, %L, %L, %L",
-          city.id,
-          city.name,
-          city.coordinates.longitude,
-          city.coordinates.latitude
-        )
-      );*/
-      return client.query(
-        Buffer.from(
-          format(
-            `
-        INSERT INTO cities (id, name, longitude, latitude)
-        VALUES (%L, %L, %L, %L)
-        ON CONFLICT (id) DO NOTHING;
-      `,
-            city.id,
-            city.name.normalize("NFC"),
-            city.coordinates.longitude,
-            city.coordinates.latitude
-          ),
-          "utf8"
-        ).toString("utf8")
-      );
-    })
-  );
+  const query = sql``;
 
-  console.log("Inserted cities: ", counter);
-
+  const insertedCities = await sql`
+    INSERT INTO cities
+      ${sql(
+        cities.map((city) => {
+          return {
+            id: city.id,
+            name: encodeURIComponent(city.name),
+            latitude: city.coordinates.latitude,
+            longitude: city.coordinates.longitude,
+          };
+        })
+      )}
+    ON CONFLICT (id) DO NOTHING;
+  `;
   return insertedCities;
 }
 
 async function seedComposers(composers: ComposerDb[]) {
-  await client.query(
-    Buffer.from(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`, "utf-8").toString(
-      "utf8"
-    )
-  );
-  await client.query(
-    Buffer.from(
-      format(
-        `CREATE TABLE IF NOT EXISTS composers (
-      id VARCHAR(255) DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name TEXT NOT NULL,
-      birthplace VARCHAR(255) references cities(id),
-      birthDate DATE NOT NULL,
-      deathplace VARCHAR(255) references cities(id),
-      deathDate DATE NOT NULL
+  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS composers (
+    id VARCHAR(255) DEFAULT uuid_generate_v4() PRIMARY KEY,
+    name TEXT NOT NULL,
+    birthplace VARCHAR(255) references cities(id),
+    birthDate DATE NOT NULL,
+    deathplace VARCHAR(255) references cities(id),
+    deathDate DATE NOT NULL
     );
-  `
-      ),
-      "utf8"
-    ).toString("utf8")
-  );
+  `;
 
   console.log("Created table composers.");
   console.log("Insert composers...");
   console.log(composers.length);
 
-  const insertedComposers = await Promise.all(
-    composers.map(async (composer) => {
-      return client.query(
-        Buffer.from(
-          format(
-            `
-        INSERT INTO composers (id, name, birthplace, birthDate, deathplace, deathDate)
-        VALUES (%L, %L, %L, %L, %L, %L)
-        ON CONFLICT (id) DO NOTHING;
-      `,
-            composer.id,
-            composer.name.normalize("NFC"),
-            composer.birthplace,
-            composer.birthdate.toISOString().substring(0, 10),
-            composer.deathplace,
-            composer.deathdate.toISOString().substring(0, 10)
-          ),
-          "utf8"
-        ).toString("utf8")
-      );
-    })
-  );
+  const insertedComposers = await sql`
+    INSERT INTO composers 
+      ${sql(
+        composers.map((c) => {
+          return {
+            ...c,
+            name: encodeURIComponent(c.name),
+            birthdate: c.birthdate.toISOString().substring(0, 10),
+            deathdate: c.deathdate.toISOString().substring(0, 10),
+          };
+        })
+      )}
+    ON CONFLICT (id) DO NOTHING;
+  `;
 
   return insertedComposers;
 }
 
 async function seedLocations(composers: ComposerDb[], cities: City[]) {
-  await client.query(
-    Buffer.from(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`, "utf8").toString(
-      "utf8"
-    )
-  );
-  await client.query(
-    Buffer.from(
-      `
+  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  await sql`
     CREATE TABLE IF NOT EXISTS locations (
       id          UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
       composer_id VARCHAR(255) references composers(id),
@@ -268,64 +236,55 @@ async function seedLocations(composers: ComposerDb[], cities: City[]) {
       reason      TEXT NOT NULL,
       description TEXT NOT NULL
     );
-  `,
-      "utf8"
-    ).toString("utf8")
-  );
+  `;
 
   console.log("Created table locations.");
   console.log("Insert locations...");
 
-  const insertedLocations = await Promise.all(
-    composers.map(async (comp) => {
-      return Promise.all([
-        client.query(
-          Buffer.from(
-            format(
-              `
-        INSERT INTO locations (composer_id, city_id, start_date, end_date, reason, description)
-        VALUES (%L, %L, %L, %L, %L, %L)
-        ON CONFLICT (id) DO NOTHING;
-      `,
-              comp.id,
-              comp.birthplace,
-              comp.birthdate.toISOString().substring(0, 10),
-              comp.birthdate.toISOString().substring(0, 10),
-              "birth",
+  const insertedLocationsBirth = await sql`
+    INSERT INTO locations
+      ${sql(
+        composers.map((c) => {
+          return {
+            composer_id: c.id,
+            city_id: c.birthplace,
+            start_date: c.birthdate.toISOString().substring(0, 10),
+            end_date: c.birthdate.toISOString().substring(0, 10),
+            reason: "birth",
+            description:
               "Born in " +
-                cities
-                  .find((city) => comp.birthplace == city.id)
-                  ?.name.normalize("NFC")
-            ),
-            "utf8"
-          ).toString("utf8")
-        ),
-        client.query(
-          Buffer.from(
-            format(
-              `
-        INSERT INTO locations (composer_id, city_id, start_date, end_date, reason, description)
-        VALUES (%L, %L, %L, %L, %L, %L)
-        ON CONFLICT (id) DO NOTHING;
-      `,
-              comp.id,
-              comp.deathplace,
-              comp.deathdate.toISOString().substring(0, 10),
-              comp.deathdate.toISOString().substring(0, 10),
-              "death",
+              encodeURIComponent(
+                cities.find((city) => c.birthplace == city.id)?.name ??
+                  "Unknown"
+              ),
+          };
+        })
+      )}
+    ON CONFLICT (id) DO NOTHING;
+  `;
+  const insertedLocationsDeath = await sql`
+    INSERT INTO locations
+      ${sql(
+        composers.map((c) => {
+          return {
+            composer_id: c.id,
+            city_id: c.birthplace,
+            start_date: c.deathdate.toISOString().substring(0, 10),
+            end_date: c.deathdate.toISOString().substring(0, 10),
+            reason: "death",
+            description:
               "Died in " +
-                cities
-                  .find((city) => comp.deathplace == city.id)
-                  ?.name.normalize("NFC")
-            ),
-            "utf8"
-          ).toString("utf8")
-        ),
-      ]);
-    })
-  );
+              encodeURIComponent(
+                cities.find((city) => c.deathplace == city.id)?.name ??
+                  "Unknown"
+              ),
+          };
+        })
+      )}
+    ON CONFLICT (id) DO NOTHING;
+  `;
 
-  return insertedLocations.flat(1);
+  return [...insertedLocationsBirth, ...insertedLocationsDeath];
 }
 
 const users: User[] = [
@@ -344,46 +303,26 @@ const users: User[] = [
 ];
 
 async function seedUsers() {
-  await client.query(
-    Buffer.from(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`, "utf8").toString(
-      "utf8"
-    )
-  );
-  await client.query(
-    Buffer.from(
-      `
+  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  await sql`
     CREATE TABLE IF NOT EXISTS users (
       id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       email TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL
     );
-  `,
-      "utf8"
-    ).toString("utf8")
-  );
+  `;
 
   console.log("Created table users.");
 
   const insertedUsers = await Promise.all(
     users.map(async (user) => {
       const hashedPassword = await bcrypt.hash(user.password, 10);
-      return client.query(
-        Buffer.from(
-          format(
-            `
+      return sql`
         INSERT INTO users (id, name, email, password)
-        VALUES (%L, %L, %L, %L)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword})
         ON CONFLICT (id) DO NOTHING;
-      `,
-            user.id,
-            user.name,
-            user.email,
-            hashedPassword
-          ),
-          "utf8"
-        ).toString("utf8")
-      );
+      `;
     })
   );
 
@@ -391,6 +330,7 @@ async function seedUsers() {
 }
 
 export async function GET() {
+  /*
   try {
     const [composers, cities] = await processInputFiles();
     console.log("Try seeding db");
@@ -407,8 +347,14 @@ export async function GET() {
     console.log("Done seeding locations");
     //console.log("Location Result: ", locationResult);
     return Response.json({ message: "Seed successful" });
+
   } catch (error) {
     console.error(error);
     return Response.json({ error }, { status: 500 });
-  }
+  }*/
+
+  return Response.json({
+    message:
+      "Database is already seeded. Please uncomment code on server to re-seed.",
+  });
 }

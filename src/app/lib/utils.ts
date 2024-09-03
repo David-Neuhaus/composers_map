@@ -1,7 +1,8 @@
 import { Coord } from "@/app/lib/definitions";
 
 export function pointToCoord(str: string): Coord {
-  if (str === undefined || str === "") return { longitude: -99, latitude: -99 };
+  if (str === undefined || str === "" || str === null)
+    return { longitude: -99, latitude: -99 };
 
   const coordsMatch = str.match(/Point\((-?[0-9\.]*)\ (-?[0-9\.]*)\)/) ?? [
     0, 0, 0,
