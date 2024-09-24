@@ -71,6 +71,22 @@ export type LocationDb = {
   description: string;
 };
 
+export type LocationInput = {
+  composer_id: string;
+  city_id: string;
+  start_date: string;
+  end_date: string;
+  reason:
+    | "journey"
+    | "residence"
+    | "job"
+    | "visit"
+    | "birth"
+    | "death"
+    | "other";
+  description: string;
+};
+
 export type LocationWithCityDb = {
   id: string;
   composer_id: string;

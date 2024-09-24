@@ -1,6 +1,8 @@
 import postgres from "postgres";
 
 import {
+  City,
+  CityDb,
   Composer,
   ComposerTable,
   ComposerWithCitiesDb,
@@ -161,4 +163,21 @@ export async function fetchComposerTable(): Promise<ComposerTable> {
   );
 
   return composers;
+}
+
+export async function fetchAllCities(): Promise<City[]> {
+  const data = await sql<CityDb[]>`
+    SELECT * FROM cities ORDER BY name;
+  `;
+
+  return data.map((city) => {
+    return {
+      id: city.id,
+      name: decodeURIComponent(city.name),
+      coordinates: {
+        latitude: city.latitude,
+        longitude: city.longitude,
+      },
+    };
+  });
 }

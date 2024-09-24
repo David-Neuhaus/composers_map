@@ -1,0 +1,3 @@
+.hiddenSearchIcon :global(.wrapper:first-child) svg {
+  display: none;
+}

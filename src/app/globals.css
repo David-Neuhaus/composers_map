@@ -14,6 +14,11 @@
     --background-start-rgb: 0, 0, 0;
     --background-end-rgb: 0, 0, 0;
   }
+
+  input,
+  select {
+    color: black;
+  }
 }
 
 body {
@@ -30,4 +35,21 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+@layer base {
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+.remove-outline *:focus {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
