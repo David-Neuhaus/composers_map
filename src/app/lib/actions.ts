@@ -1,9 +1,10 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { sql } from "./data";
-import { LocationDb, LocationInput } from "./definitions";
+import { CityDb, LocationDb, LocationInput } from "./definitions";
 
-import { z, ZodError, ZodIssue } from "zod";
+import { z, ZodIssue } from "zod";
 
 const locationFormSchema = z
   .object({
@@ -69,5 +70,68 @@ export async function addLocation(
   } catch (error) {
     console.error(error);
     return null;
+  }
+}
+
+const cityFormSchema = z
+  .object({
+    wikidata_id: z.string().optional(),
+    name: z.string(),
+    longitude: z.coerce.number().min(-180).max(180),
+    latitude: z.coerce.number().min(-90).max(90),
+  })
+  .refine((data) => data.name !== "", {
+    message: "Please enter a city name",
+    path: ["name"],
+  })
+  .refine((data) => data.latitude !== 0, {
+    message: "Please enter a latitude",
+    path: ["latitude"],
+  })
+  .refine((data) => data.longitude !== 0, {
+    message: "Please enter a longitude",
+    path: ["longitude"],
+  });
+
+export async function addCity(
+  cityData: FormData
+): Promise<CityDb | ZodIssue[] | null> {
+  const validatedData = cityFormSchema.safeParse({
+    wikidata_id: cityData.get("wikidata_id"),
+    name: cityData.get("name"),
+    latitude: cityData.get("latitude"),
+    longitude: cityData.get("longitude"),
+  });
+
+  if (!validatedData.success) {
+    console.error(validatedData.error);
+    console.error(cityData);
+    return validatedData.error.errors;
+  }
+
+  const { wikidata_id, name, longitude, latitude } = validatedData.data;
+
+  if (wikidata_id === "" || wikidata_id === undefined) {
+    try {
+      const data = await sql<CityDb[]>`
+        INSERT INTO cities (name, latitude, longitude)
+        VALUES (${name}, ${latitude}, ${longitude});
+        `;
+      return data[0];
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  } else {
+    try {
+      const data = await sql<CityDb[]>`
+        INSERT INTO cities (id, name, latitude, longitude)
+        VALUES (${wikidata_id}, ${name}, ${latitude}, ${longitude});
+        `;
+      return data[0];
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
   }
 }

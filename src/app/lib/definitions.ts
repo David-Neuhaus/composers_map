@@ -43,8 +43,8 @@ export type City = {
 export type CityDb = {
   id: string;
   name: string;
-  longitude: number;
   latitude: number;
+  longitude: number;
 };
 
 export type User = {
@@ -125,6 +125,6 @@ export type Location = {
 };
 
 export type Coord = {
-  longitude: number;
   latitude: number;
+  longitude: number;
 };
