@@ -3,23 +3,27 @@
 import { addLocation } from "@/app/lib/actions";
 import { City } from "@/app/lib/definitions";
 import { PlusIcon } from "@heroicons/react/16/solid";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ReactSearchAutocomplete } from "react-search-autocomplete";
 import { ZodIssue } from "zod";
 
 import styles from "./add-location.module.css";
+import Link from "next/link";
 
 export default function AddLocation({
   id,
   cities,
+  selectedCity,
 }: {
   id: string;
   cities: City[];
+  selectedCity?: City;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [errors, setErrors] = useState<ZodIssue[]>([]);
   const [cityId, setCity] = useState<string>("");
   const [isSearching, setIsSearching] = useState(true);
+  const [alreadySetInitialCity, setAlreadySetInitialCity] = useState(false);
 
   function handleClick() {
     setShowForm(!showForm);
@@ -41,6 +45,15 @@ export default function AddLocation({
   function handleCitySearch(value: string) {
     setIsSearching(true);
   }
+
+  useEffect(() => {
+    if (selectedCity && !alreadySetInitialCity) {
+      setIsSearching(false);
+      setCity(selectedCity.id);
+      setShowForm(true);
+      setAlreadySetInitialCity(true);
+    }
+  });
 
   return (
     <div className="">
@@ -65,7 +78,11 @@ export default function AddLocation({
             items={cities}
             onSelect={handleCitySelect}
             onSearch={handleCitySearch}
-            placeholder="Search for a city"
+            placeholder={
+              selectedCity !== undefined
+                ? selectedCity.name
+                : "Search for a city"
+            }
             className={`remove-outline col-span-2 ${
               !isSearching && styles.hiddenSearchIcon
             }`}
@@ -74,15 +91,15 @@ export default function AddLocation({
               fontFamily: "inherit",
             }}
           />
-          <a
-            href="/database/city/add"
+          <Link
+            href={`/database/city/add/${id}`}
             className="text-sm text-blue-800 dark:text-blue-600 hover:text-blue-950"
           >
             <div className="flex items-center">
               <PlusIcon className="size-4"></PlusIcon>
               <span>Add city</span>
             </div>
-          </a>
+          </Link>
           <span
             className={`${
               errors.findIndex((el) => {
